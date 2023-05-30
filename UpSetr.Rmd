@@ -1,0 +1,140 @@
+---
+title: "UpSetr"
+author: "Noah Auger"
+date: "2023-03-10"
+output: html_document
+---
+
+
+```{r}
+DPE_1_All <- DPE_1 %>%
+  filter(padj < 0.05 & abs(log2FoldChange) >= 2) %>%
+  select(Cluster)
+
+write.table(DPE_1_All, "DPE_1_All", col.names = FALSE, row.names = FALSE)
+
+DPE_1_All <- DPE_1 %>%
+  filter(padj < 0.05 & (log2FoldChange) >= 2) %>%
+  select(Cluster)
+
+write.table(DPE_1_All, "DPE_1_All", col.names = FALSE, row.names = FALSE)
+
+DPE_1_All <- DPE_1 %>%
+  filter(padj < 0.05 & (log2FoldChange) <= -2) %>%
+  select(Cluster)
+
+DPE_1_All <- DPE_1 %>%
+  filter(padj < 0.05 & abs(log2FoldChange) >= 2) %>%
+  select(Cluster)
+```
+
+
+```{r}
+HPE_12_All_ <- HPE_12 %>%
+  filter(padj < 0.05)
+```
+
+
+```{r}
+# make a list of input files to be read
+filelist_All = list.files(pattern = "*_All.txt")
+
+# make a 3 column table of listname,gene,1
+res_All<-lapply(filelist_All, function(x){
+ data.frame(
+  set=x,
+  geneID=as.character(read.table(x)[,1]),
+  val=1)
+})
+
+res_All<-ldply(res_All)
+
+# turn the 3 column long table into a wide
+res1_All<-acast(res_All,geneID~set,value.var="val",fill=0) 
+
+# force as dataframe
+res1_All<-as.data.frame(res1_All)
+
+# 1st column must be a name
+res1_All$name=rownames(res1_All)
+
+# rearrange columns
+res2_All=res1_All[,c(ncol(res1_All),1:(ncol(res1_All)-1))]
+```
+
+
+```{r}
+# rename the column names
+res2_All <- res2_All %>% dplyr::rename("DPE 1 (1005)" = "DPE_1_All.txt",
+                               "DPE 3 (1269)" = "DPE_3_All.txt", 
+                               "DPE 7 (1263)" = "DPE_7_All.txt",
+                               "DPE 14 (454)" = "DPE_14_R_All.txt", 
+                               "DPE 14 A (1671)" = "DPE_14_A_All.txt",
+                               "DPE 14 P (1650)" = "DPE_14_P_All.txt",
+                               "DPE 21 (1424)" = "DPE_21_All.txt",
+                               "HPE 12 (2559)" = "HPE_12_All.txt")
+```
+
+
+
+All
+```{r}
+pdf("All.pdf")
+upset(res2_All, 
+      sets = c("DPE 21 (3559)","DPE 14 P (4241)","DPE 14 A (3698)","DPE 14 (959)","DPE 7 (1696)","DPE 3 (1595)","DPE 1 (1558)","HPE 12 (3630)"), 
+      sets.x.label = "Gene Number", 
+      mainbar.y.label = "Gene Intersections", 
+      keep.order = T, 
+      order.by = "freq", 
+      number.angles = 16.5, 
+      text.scale = c(1.3, 1.3, 1, 1, 1, 0.7), 
+      mb.ratio = c(.65 , .35))
+dev.off()
+#c(intersection size title, intersection size tick labels, set size title, set size tick labels, set names, numbers above bars)
+```
+
+
+Upregulated
+```{r}
+pdf("up.pdf")
+upset(res2_Up, 
+      sets = c("DPE 21 (2135)","DPE 14 P (2591)","DPE 14 A (2027)","DPE 14 (505)","DPE 7 (433)","DPE 3 (326)","DPE 1 (552)","HPE 12 (1071)"), 
+      sets.x.label = "Gene Number", 
+      main.bar.color = "red", 
+      mainbar.y.label = "Gene Intersections", 
+      keep.order = T, 
+      order.by = "freq", 
+      number.angles = 16.5, 
+      text.scale = c(1.3, 1.3, 1, 1, 1, 0.7), #c(intersection size title, intersection size tick labels, set size title, set size tick labels, set names, numbers above bars)
+      mb.ratio = c(.65 , .35))
+dev.off()
+```
+
+
+Downregulated
+```{r}
+pdf("down.pdf")
+upset(res2_Down, 
+      sets = c("DPE 21 (1424)","DPE 14 P (1650)","DPE 14 A (1671)","DPE 14 (454)","DPE 7 (1263)","DPE 3 (1269)","DPE 1 (1005)","HPE 12 (2559)"), 
+      sets.x.label = "Gene Number", 
+      mainbar.y.label = "Gene Intersections", 
+      main.bar.color = "blue", 
+      keep.order = T, 
+      order.by = "freq", 
+      number.angles = 16.5, 
+      text.scale = c(1.3, 1.3, 1, 1, 1, 0.7), #c(intersection size title, intersection size tick labels, set size title, set size tick labels, set names, numbers above bars)
+      mb.ratio = c(.65 , .35))
+dev.off()
+```
+
+
+
+```{r}
+R_A_P_21.txt <- read.table("14_R_A_P_21.txt", header = T)
+R_A_P_21.txt <- R_A_P_21.txt %>% inner_join(DPE_14_A, by = c("Cluster"="Cluster"))
+```
+
+```{r}
+R_A_P_21.txt <- read.table("14_R_A_P_21.txt", header = T)
+R_A_P_21.txt <- R_A_P_21.txt %>% inner_join(lightcyan, by = c("Cluster"="gene"))
+```

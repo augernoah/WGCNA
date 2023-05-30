@@ -1,0 +1,291 @@
+---
+title: "WGCNA_Rudiment_2023"
+author: "Noah Auger"
+date: "2023-02-23"
+output: html_document
+---
+
+
+
+#Packages
+```{r}
+suppressMessages(library(DESeq2))
+suppressMessages(library(ComplexHeatmap))
+suppressMessages(library(WGCNA))
+suppressMessages(library(dplyr))
+suppressMessages(library(ggplot2))
+suppressMessages(library(UniprotR))
+suppressMessages(library(UpSetR))
+suppressMessages(library(clusterProfiler))
+suppressMessages(library(scales))
+```
+
+
+
+
+
+#Read in the metadata file that contains names for the timepoint 
+#Read in the count matrix file (from back analysis) and the cluster ID (which contains the unrepeated clusters).
+```{r}
+metadata<-read.table("pdata_corset.txt", header = 2, sep = '\t')
+
+counts <- read.delim(file = "counts.txt", header = TRUE)
+
+clus <- read.delim(file = "cluster_IDs.txt")
+```
+
+
+#Assure that there are no repeats in the cluster file, otherwsie you will not be able to turn a column into row names with the rownames function. Then rearrange the columns so they are in sequential order, removing the timepoints from the intestine, leaving only timepoints of the mesentery.
+```{r}
+clus  <- clus %>% distinct(Clust, .keep_all = T) 
+
+df <- counts %>% right_join(clus, by = c("Clus"="Clust"))
+
+df <- df %>% na.omit() 
+
+rownames(df) <- df$Clus
+
+df  <- df[, -1]
+ 
+df <- df [,c(31,32,33,1,2,3,4,20,21,22,23,24,25,15,16,17,18,19,10,11,5,6,7,8,9,12,13,14,26,27,28,29,30)]
+
+df <- df [,c(-30,-10,-11)]
+```
+
+
+Convert df into a dataframe and filter each row so that the sum of each row is equal to or greater than 15 counts. The threshold of 15 is lower since we only have 20 samples. If we had 30 samples, for example, I would raise it.
+```{r}
+df <- as.data.frame(df) %>%
+  dplyr::filter(rowSums(.) >= 30)
+```
+
+
+```{r}
+# Create a `DESeqDataSet` object
+dds <- DESeqDataSetFromMatrix(
+  countData = df, # Our prepped data frame with counts
+  colData = metadata, # Data frame with annotation for our samples
+  design = ~1 # Here we are not specifying a model
+)
+```
+
+
+```{r}
+# Normalize and transform the data in the `DESeqDataSet` object using the `vst()`
+# function from the `DESEq2` R package
+dds_norm <- vst(dds)
+```
+
+
+```{r}
+# Retrieve the normalized data from the `DESeqDataSet`
+normalized_counts <- assay(dds_norm) %>%
+  t()
+```
+
+Looking for outliers
+```{r}
+##hierarchical clustering
+sampleTree0 = hclust(dist(normalized_counts), method = "average")
+par(cex = 1);
+plot(sampleTree0, 
+  main = "Sample clustering to detect outliers", 
+  sub="", xlab="", cex.lab = 1.5,
+  cex.axis = 1.5, cex.main = 2)
+```
+
+
+```{r}
+# Choose a set of soft-thresholding powers
+powers = c(c(1:10), seq(from = 12, to=25, by=2))
+# Call the network topology analysis function
+sft = pickSoftThreshold(normalized_counts, powerVector = powers, verbose = 5, networkType = "signed")
+```
+
+
+png('SI_MC', units = "in", width = 10, height = 5, res = 300)
+
+```{r}
+# Plot the results:
+sizeGrWindow(9, 5)
+par(mfrow = c(1,2));
+cex1 = 0.9;
+png('SI_MC', units = "in", width = 10, height = 5, res = 300)
+# Scale-free topology fit index as a function of the soft-thresholding power
+plot(sft$fitIndices[,1], -sign(sft$fitIndices[,3])*sft$fitIndices[,2],
+     xlab="Soft Threshold (power)",ylab="Scale Free Topology Model Fit,signed R^2",type="n",
+     main = paste("Scale independence"));
+text(sft$fitIndices[,1], -sign(sft$fitIndices[,3])*sft$fitIndices[,2],
+     labels=powers,cex=cex1,col="red");
+# this line corresponds to using an R^2 cut-off of h
+abline(h=0.80,col="red")
+# Mean connectivity as a function of the soft-thresholding power
+plot(sft$fitIndices[,1], sft$fitIndices[,5],
+     xlab="Soft Threshold (power)",ylab="Mean Connectivity", type="n",
+     main = paste("Mean connectivity"))
+text(sft$fitIndices[,1], sft$fitIndices[,5], labels=powers, cex=cex1,col="red")
+dev.off()
+```
+dev.off()
+
+```{r}
+sft_df <- data.frame(sft$fitIndices) %>%
+  dplyr::mutate(model_fit = -sign(slope) * SFT.R.sq)
+```
+
+
+```{r}
+bwnet <- blockwiseModules(normalized_counts,
+  maxBlockSize = 12000, # What size chunks (how many genes) the calculations should be run in
+  TOMType = "signed", # topological overlap matrix
+  power = 10, # soft thre shold for network construction
+  numericLabels = F, # Let's use numbers instead of colors for module labels
+  randomSeed = 1234, # there's some randomness associated with this calculation so we should set a seed
+  minModuleSize = 30,
+  deepSplit = 2,
+  networkType = "signed",
+  detectCutHeight = 0.9
+)
+```
+
+
+unmerged colors
+```{r}
+table(bwnet$unmergedColors)
+```
+
+merged colors
+```{r}
+table(bwnet$colors)
+```
+
+
+graph of the dynamic cut method and merged colors
+```{r}
+png('Dynamic_Cut.png', units = "in", width = 8, height = 5, res = 300)
+unmergedColors = labels2colors(bwnet$unmergedColors)
+mergedColors   = labels2colors(bwnet$colors)
+plotDendroAndColors(
+  bwnet$dendrograms[[1]],
+  cbind(unmergedColors[bwnet$blockGenes[[1]]], mergedColors[bwnet$blockGenes[[1]]]),
+  c("Dynamic Tree Cut" , "Merged colors"),
+  dendroLabels = FALSE,
+  hang = 0.03,
+  addGuide = TRUE,
+  guideHang = 0.05
+)
+dev.off()
+```
+
+
+extract the eigengenes from the network
+```{r}
+module_eigengenes <- bwnet$MEs
+
+# Print out a preview
+head(module_eigengenes)
+```
+pdf("Eigengene Dendogram")
+pdf("Eigengene Adjacency Map")
+Eigengene Dendogram
+```{r}
+# Plot the dendrogram
+sizeGrWindow(6,6);
+png('Eigengene dendrogram.png', units = "in", width = 8, height = 8, res = 300)
+par(cex = 1.0)
+plotEigengeneNetworks(module_eigengenes, "Eigengene dendrogram", marDendro = c(0,4,2,0),
+                    plotHeatmaps = FALSE)
+dev.off()
+# Plot the heatmap matrix (note: this plot will overwrite the dendrogram plot)
+png('Eigengene adjacency heatmap.png', units = "in", width = 6, height = 8, res = 300)
+par(cex = 1.0)
+plotEigengeneNetworks(module_eigengenes, "Eigengene adjacency heatmap", marHeatmap = c(3,4,2,2),
+                    plotDendrograms = FALSE, xLabelsAngle = 90)
+dev.off()
+```
+
+
+```{r}
+Eigengenes_graphs <- module_eigengenes %>%
+  tibble::rownames_to_column("Time Post-Evisceration") %>%
+  # Here we are performing an inner join with a subset of metadata
+  dplyr::inner_join(metadata %>%
+    dplyr::select(X, Timepoint),
+  by = c("Time Post-Evisceration" = "X")
+  )
+```
+
+```{r}
+Eigengenes_graphs$Timepoint <- factor(Eigengenes_graphs$Timepoint, levels = c('Normal Mesentery', '12h', '1d', '3d' ,'7d', '14d Rudiment', '14d Anterior', '14d Posterior', '21d', 'Normal Intestine'))
+```
+
+png('Green.png', units = "in", width = 10, height = 5, res = 300)
+```{r}
+png('red.png', units = "in", width = 12, height = 5, res = 300)
+ggplot(
+  Eigengenes_graphs,
+  aes(
+    x = Timepoint,
+    y = MEred,
+    color = Timepoint
+  )
+) +
+  ylab('Red module eigengene') +
+  xlab('Time post-evisceration') +
+  # a boxplot with outlier points hidden (they will be in the sina plot)
+  geom_boxplot(width = 0.2, outlier.shape = NA) +
+  # A sina plot to show all of the individual data points
+  ggforce::geom_sina(maxwidth = 0.3) +
+  theme_classic() +
+  theme(text = element_text(size = 18)) +
+  scale_x_discrete(labels = label_wrap(10))
+dev.off()
+```
+
+ theme(text = element_text(size = 15)) 
+dev.off()
+
+
+
+Applying Cellular Processes as Traits
+```{r}
+traitData = read.csv('Traits.csv')
+Samples = rownames(normalized_counts)
+traitRows = match(Samples, traitData$Sample)
+datTraits = traitData[traitRows, -1]
+rownames(datTraits) = traitData[traitRows, 1]
+View(datTraits)
+```
+
+
+```{r}
+###module-trait correlation using linear regression method
+nGenes = ncol(normalized_counts)
+nSamples = nrow(normalized_counts)
+MEs0 = moduleEigengenes(normalized_counts, moduleColors)$eigengenes
+MEs = orderMEs(MEs0)
+
+##calculate correlation between traits and MEs using line regression method
+moduleTraitCor = cor(MEs,datTraits,use = "p")
+moduleTraitPvalue = corPvalueStudent(moduleTraitCor, nSamples)
+textMatrix =  paste( signif(moduleTraitCor, 2), "\n(",signif(moduleTraitPvalue, 1),")", sep = "")
+dim(textMatrix) = dim(moduleTraitCor)
+par(mar = c(6, 8.5, 3, 3));
+
+
+# Display the correlation values within a heatmap plot
+pdf('trait_wound')
+labeledHeatmap(
+Matrix = moduleTraitCor,
+xLabels = names(datTraits),
+yLabels = names(MEs),
+ySymbols = names(MEs),
+colorLabels = F,
+colors = blueWhiteRed(50),
+textMatrix = textMatrix,
+cex.text = 0.4, zlim = c(-1,1), cex.lab.x = .5, cex.lab.y = 0.8,
+main = paste("Module to Cellular Process Relationship"),
+)
+dev.off()
+```
+

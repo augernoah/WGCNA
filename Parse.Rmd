@@ -1,0 +1,90 @@
+---
+title: "Parsing_Modules"
+author: "Noah Auger"
+date: "2023-02-23"
+output: html_document
+---
+
+
+#
+```{r}
+# Create the design matrix from the `time_point` variable
+des_mat <- model.matrix(~ metadata$Timepoint)
+```
+
+
+```{r}
+# lmFit() needs a transposed version of the matrix
+fit <- limma::lmFit(t(module_eigengenes), design = des_mat)
+
+# Apply empirical Bayes to smooth standard errors
+fit <- limma::eBayes(fit)
+```
+
+
+```{r}
+# Apply multiple testing correction and obtain stats
+stats_df <- limma::topTable(fit, number = ncol(module_eigengenes)) %>%
+  tibble::rownames_to_column("module")
+```
+
+This has put the modules in order of the most differentially expressed across all the timepoints. In other words, the module at the time is the module that 
+```{r rownames.print = FALSE}
+show(stats_df)
+```
+
+
+
+##How to find the hub genes of the modules
+```{r}
+module.gene.mapping <- as.data.frame(bwnet$colors)
+
+module.membership.measure <- cor(module_eigengenes, normalized_counts, use ='p')
+
+module.membership.measure.pvals <- corPvalueStudent(module.membership.measure, nSamples= 30)
+```
+
+
+```{r}
+chooseTopHubInEachModule(
+   normalized_counts, 
+   module.gene.mapping, 
+   omitColors = "grey", 
+   power = 10, 
+   type = "signed")
+```
+
+```{r}
+gene_module_key <- tibble::enframe(bwnet$colors, name = "gene", value = "module") %>%
+  # Let's add the `ME` part so its more clear what these numbers are and it matches elsewhere
+  dplyr::mutate(module = paste0("ME", module))
+```
+
+
+
+
+
+
+#How to get the top correlated genes in a module
+
+```{r}
+membership.pvals <- t(module.membership.measure.pvals) %>% as.data.frame()
+
+membership.values <- t(module.membership.measure) %>% as.data.frame()
+```
+
+
+
+```{r}
+FilterGenes = membership.pvals$ME7 < .0001 & membership.values$ME7 < -.91
+table(FilterGenes)
+
+dimnames(data.frame(normalized_counts))[[2]][FilterGenes]
+```
+
+```{r}
+mem_vals <- rownames_to_column(membership.values) 
+module.map <- rownames_to_column(module.gene.mapping)
+```
+
+

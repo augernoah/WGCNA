@@ -1,0 +1,228 @@
+---
+title: "Gene Ontology"
+author: "Noah Auger"
+date: "2023-02-17"
+output: html_document
+---
+
+Packages
+```{r}
+library(DOSE)
+library(ggridges)
+library(clusterProfiler)
+library(enrichplot)
+# we use ggplot2 to add x axis labels (ex: ridgeplot)
+```
+```{r}
+# SET THE DESIgreen ORGANISM HERE
+human = "org.Hs.eg.db"
+BiocManager::install(human, character.only = TRUE)
+library(human, character.only = TRUE)
+```
+DPE_1_All <- DPE_1 %>%
+  filter(padj < 0.05 & abs(log2FoldChange) >= 2)
+
+
+Now we can find what genes are a part of a module. 
+```{r}
+ green <- gene_module_key %>%
+  dplyr::filter(module == "MEgreen")
+ 
+green <- green %>% inner_join(DPE_1, by = c("gene"="Cluster"))
+```
+
+```{r}
+green <- green %>% arrange(desc(abs(log2FoldChange)))
+green <- green[!duplicated(green$BlastHitUniprotID), ]
+which(duplicated(green$BlastHitUniprotID))
+```
+
+```{r}
+# we want the log2 fold change 
+original_gene_list_green <- green$log2FoldChange
+
+# name the vector
+names(original_gene_list_green) <- green$BlastHitUniprotID
+
+# omit any NA values 
+gene_list_green<-na.omit(original_gene_list_green)
+
+# sort the list in decreasing order (requigreen for clusterProfiler)
+gene_list_green = sort(gene_list_green, decreasing = TRUE)
+
+head(gene_list_green)
+tail(gene_list_DPE_1)
+head(original_gene_list_DPE_1)
+```
+
+
+
+
+
+
+
+```{r}
+#rearrange so that they are ordegreen by highest absoluate number
+DPE_21_GSEA <- DPE_21 %>%
+  arrange(desc(abs(log2FoldChange)))
+
+# now we can remove duplicated uniprot ids, leaving the one id with the highest absoluate value which will be necessary for the GSEA. 
+DPE_21_GSEA <- DPE_21_GSEA[!duplicated(DPE_21_GSEA$BlastHitUniprotID), ]
+
+which(duplicated(DPE_21_GSEA$BlastHitUniprotID))
+```
+
+```{r}
+original_gene_list_DPE_21 <- DPE_21_GSEA$log2FoldChange
+
+# name the vector
+names(original_gene_list_DPE_21) <- DPE_21_GSEA$BlastHitUniprotID
+
+# omit any NA values 
+gene_list_DPE_21<-na.omit(original_gene_list_DPE_21)
+
+# sort the list in decreasing order (requigreen for clusterProfiler)
+gene_list_DPE_21 = sort(gene_list_DPE_21, decreasing = TRUE)
+
+head(gene_list_DPE_21)
+```
+
+
+
+
+```{r}
+gse_DPE_21 <- gseGO(geneList=gene_list_DPE_21, 
+             ont ="BP", 
+             keyType = "UNIPROT", 
+             nPerm = 5000, 
+             minGSSize = 15, 
+             maxGSSize = 800, 
+             pvalueCutoff = 0.05, 
+             verbose = TRUE, 
+             OrgDb = human, 
+             pAdjustMethod = "none")
+```
+
+png('1.png', units = "in", width = 11, height = 4.5, res = 300)
+```{r}
+png('1.png', units = "in", width = 17, height = 10, res = 300)
+require(DOSE)
+dotplot(gse_DPE_14_P, showCategory=5, split=".sign", font.size = 14, label_format = 30, title = "                                                                                                Gene Set Enrichment of 14 dpe Posterior") + facet_grid(.~.sign)
+dev.off()
+```
+
+require(DOSE)
+dotplot(gse_DPE_1, showCategory=2, split=".sign", font.size = 10, title = "                 Gene Set Enrichment of 12 hpe") + facet_grid(.~.sign)
+
+```{r}
+kk_DPE_1 <- gseKEGG(geneList = gene_list_DPE_1,
+               organism     = "dme",
+               nPerm        = 5000,
+               minGSSize    = 15,
+               maxGSSize    = 800,
+               pvalueCutoff = 0.05,
+               pAdjustMethod = "none",
+               keyType       = "uniprot")
+```
+
+
+pdf('DPE_1_Kegg')
+```{r}
+
+dotplot(kk_DPE_1, showCategory = 5, title = "            Kegg Enriched Pathways of 12 hpe" , split=".sign", font.size = 10) + facet_grid(.~.sign)
+
+```
+
+dev.off()
+```{r}
+# Produce the native KEGG plot (PNG)
+dme <- pathview(gene.data=kegg_gene_list, pathway.id="hsa05165", species = "hsa")
+
+# Produce a different plot (PDF) (not displayed here)
+dme <- pathview(gene.data=kegg_gene_list, pathway.id="hsa05165", species = "hsa", kegg.native = F)
+```
+
+```{r}
+knitr::include_graphics("hsa05165.pathview.png")
+```
+
+
+
+
+```{r}
+# Convert gene IDs for gseKEGG function
+# We will lose some genes here because not all IDs will be converted
+ids<-bitr(names(gene_list_DPE_1), fromType = "UNIPROT", toType = "ENTREZID", OrgDb=human)
+ # remove duplicate IDS (here I use "ENSEMBL", but it should be whatever was selected as keyType)
+dedup_ids = ids[!duplicated(ids[c("UNIPROT")]),]
+# Create a new dataframe df2 which has only the genes which were successfully mapped using the bitr function above
+df2 = DPE_1_All_[DPE_1_All_$BlastHitUniprotID %in% dedup_ids$UNIPROT,]
+
+# Create a new column in df2 with the corresponding ENTREZ IDs
+df2$Y = dedup_ids$ENTREZID
+
+# Create a vector of the gene unuiverse
+kegg_gene_list <- df2$log2FoldChange
+
+# Name vector with ENTREZ ids
+names(kegg_gene_list) <- df2$Y
+
+# omit any NA values 
+kegg_gene_list<-na.omit(kegg_gene_list)
+
+# sort the list in decreasing order (requigreen for clusterProfiler)
+kegg_gene_list = sort(kegg_gene_list, decreasing = TRUE)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+Enrichment.BP(yellow$BlastHitUniprotID,OS="hsapiens", p_value = 0.05)
+```
+
+```{r}
+Enrichment.BP(red$BlastHitUniprotID,OS="hsapiens", p_value = 0.001)
+```
+
+
+
+
+
+
+```{r}
+green_GO <- GetProteinGOInfo(green$BlastHitUniprotID)
+```
+
+
+```{r}
+PlotGOAll(green_GO, Top = 5)
+
+PlotGOBiological(green_GO, Top = 10)
+```
+
+
+```{r}
+ DPE_1 <- read.csv("DPE_1.csv", header = TRUE, row.names = 1)
+```
+
+
+
+```{r}
+PlotGoInfo(mid , directorypath = "~/Desktop")
+
+PlotProteinGO_bio(GO_df , dir_path = NA)
+ 
+PlotGoterms(GOObj , directorypath = "~/Desktop")
+```
